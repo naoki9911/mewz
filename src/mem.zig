@@ -2,6 +2,7 @@ const multiboot = @import("multiboot.zig");
 const log = @import("log.zig");
 const sync = @import("sync.zig");
 const util = @import("util.zig");
+const zeropage = @import("zeropage.zig");
 
 const SpinLock = sync.SpinLock;
 
@@ -210,6 +211,46 @@ pub fn init(info: *multiboot.BootInfo) void {
             }
 
             off += mmap.size + @sizeOf(u32);
+        }
+    }
+}
+
+pub fn initWithZeroPage(info: zeropage.ZeroPageInfo) void {
+    const image_end_addr = @intFromPtr(&image_end);
+
+    {
+        // disable alignment checks for mmaps
+        @setRuntimeSafety(false);
+
+        var entry_idx: u8 = 0;
+        while (entry_idx < info.e820_entry_num) {
+            entry_idx += 1;
+            const entry = info.e820_entries[entry_idx - 1];
+            log.info.printf("E820 Entry [{}] addr=0x{x} size=0x{x} type={}\n", .{ entry_idx, entry.addr, entry.size, entry.type_ });
+            if (entry.type_ == 1) { // E820 RAM
+                // exclude the kernel image from available memory, because it's already used
+                const base = @max(image_end_addr, entry.addr);
+                const end = entry.addr + entry.size;
+                if (end <= base) {
+                    continue;
+                }
+                log.info.printf("available memory: {x} - {x}\n", .{ base, end });
+
+                // align the range to BLOCK_SIZE
+                const aligned_base = util.roundUp(usize, base, BLOCK_SIZE);
+                const aligned_end = util.roundDown(usize, end, BLOCK_SIZE);
+
+                const length = aligned_end - aligned_base;
+                if (length >= MIN_BOOTTIME_ALLOCATOR_SIZE) {
+                    // create a new allocator for the boot time
+                    const buf = @as([*]u8, @ptrFromInt(aligned_base))[0..length];
+                    boottime_fba = FixedBufferAllocator.init(buf);
+                    boottime_allocator = boottime_fba.?.allocator();
+                } else {
+                    // add the range to the free list
+                    initRange(aligned_base, length);
+                }
+            }
         }
     }
 }

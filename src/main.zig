@@ -19,6 +19,7 @@ const multiboot = @import("multiboot.zig");
 const virtio_net = @import("drivers/virtio/net.zig");
 const interrupt = @import("interrupt.zig");
 const x64 = @import("x64.zig");
+const zeropage = @import("zeropage.zig");
 
 const wasi = @import("wasi.zig");
 
@@ -27,20 +28,26 @@ extern fn wasker_main() void;
 pub const panic = mewz_panic.panic;
 
 export fn bspEarlyInit(boot_magic: u32, boot_params: u32) align(16) callconv(.C) void {
-    const bootinfo = @as(*multiboot.BootInfo, @ptrFromInt(boot_params));
-    const cmdline = util.getString(bootinfo.cmdline);
-
     x64.init();
-    param.parseFromArgs(cmdline);
 
     uart.init();
     lapic.init();
     ioapic.init();
     picirq.init();
-    printBootinfo(boot_magic, bootinfo);
     timer.init();
     interrupt.init();
-    mem.init(bootinfo);
+    if (boot_magic == 0x2badb002) {
+        log.info.print("booted with multiboot1\n");
+        const bootinfo = @as(*multiboot.BootInfo, @ptrFromInt(boot_params));
+        printBootinfo(boot_magic, bootinfo);
+        mem.init(bootinfo);
+        param.parseFromArgs(util.getString(bootinfo.cmdline));
+    } else {
+        log.info.print("booted with linux zero page\n");
+        const info = zeropage.parseZeroPageInfo(0x7000);
+        mem.initWithZeroPage(info);
+    }
+
     if (options.enable_pci) {
         pci.init();
         log.debug.print("pci init finish\n");
