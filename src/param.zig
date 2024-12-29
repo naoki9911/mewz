@@ -1,11 +1,14 @@
 const std = @import("std");
 const log = @import("log.zig");
 const Ip4Address = std.os.linux.sockaddr;
+const virtio_mmio = @import("drivers/virtio/mmio.zig");
 
 const Params = struct {
     addr: ?u32 = null,
     subnetmask: ?u32 = null,
     gateway: ?u32 = null,
+    mmio_devices: [10]?virtio_mmio.MMIODeviceParam = [_]?virtio_mmio.MMIODeviceParam{null} ** 10,
+    mmio_device_num: usize = 0,
 
     pub fn isNetworkEnabled(self: Params) bool {
         return self.addr != null and self.subnetmask != null and self.gateway != null;
@@ -29,6 +32,43 @@ pub fn parseFromArgs(args: []const u8) void {
             params.gateway = parseIp4Address(v) orelse {
                 @panic("invalid ip format");
             };
+        } else if (std.mem.eql(u8, k, "virtio_mmio.device")) {
+            if (params.mmio_device_num >= params.mmio_devices.len) {
+                log.warn.printf("too many virtio_mmio devices. '{s}' is ignored\n", .{v});
+                continue;
+            }
+            // TODO: error handle
+            // 4K@0xd0004000:9 SIZE@ADDR:IRQ
+            var iter = std.mem.splitScalar(u8, v, '@');
+            const size_str = iter.next() orelse continue;
+            // TODO: support non 4KiB device
+            if (!std.mem.eql(u8, size_str, "4K")) {
+                log.warn.printf("vrtio_mmio: size {s} is not supported\n", .{size_str});
+                continue;
+            }
+
+            // addr_with_irq = 0xd0004000:9
+            const addr_with_irq = iter.next() orelse continue;
+            // addr_str = 0xd0004000
+            iter = std.mem.splitScalar(u8, addr_with_irq, ':');
+            const addr_str = iter.next() orelse continue;
+            const irq_str = iter.next() orelse continue;
+            // addr_str contains prefix '0x', so base=0 is specified.
+            const addr = std.fmt.parseInt(usize, addr_str, 0) catch |err| {
+                log.warn.printf("failed to parse {s}: {}\n", .{ addr_str, err });
+                continue;
+            };
+            const irq_line = std.fmt.parseInt(usize, irq_str, 10) catch |err| {
+                log.warn.printf("failed to parse {s}: {}\n", .{ irq_str, err });
+                continue;
+            };
+
+            params.mmio_devices[params.mmio_device_num] = virtio_mmio.MMIODeviceParam{
+                .addr = addr,
+                .size = 4096,
+                .irq = irq_line,
+            };
+            params.mmio_device_num += 1;
         } else {
             continue;
         }

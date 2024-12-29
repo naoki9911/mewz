@@ -46,6 +46,13 @@ export fn bspEarlyInit(boot_magic: u32, boot_params: u32) align(16) callconv(.C)
         log.info.print("booted with linux zero page\n");
         const info = zeropage.parseZeroPageInfo(0x7000);
         mem.initWithZeroPage(info);
+        const cmd_params = @as([*]u8, @ptrFromInt(info.setup_header.cmd_line_ptr))[0..info.setup_header.cmdline_size];
+        param.parseFromArgs(cmd_params);
+        for (param.params.mmio_devices) |dev_param| {
+            if (dev_param) |d| {
+                log.info.printf("virtio_mmio device detected: addr=0x{x} size=0x{x} IRQ={}\n", .{ d.addr, d.size, d.irq });
+            }
+        }
     }
 
     if (options.enable_pci) {
