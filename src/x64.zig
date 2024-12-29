@@ -138,6 +138,10 @@ pub fn shutdown(status: u16) void {
     out(0x501, status);
 }
 
+pub fn i8042_reset() void {
+    out(0x64, @as(u8, 0xFE));
+}
+
 fn enableSSE() void {
     asm volatile (
         \\.intel_syntax noprefix
