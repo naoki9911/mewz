@@ -9,3 +9,6 @@ disk.o
 target/
 *.ll
 *.o
+/*.so.*
+/mewz.c
+/lib

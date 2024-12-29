@@ -141,6 +141,11 @@ pub fn build(b: *Build) !void {
     const run_step = b.step("run", "Run the kernel");
     run_step.dependOn(&run_cmd.step);
 
+    const libkrunfw_cmd = b.addSystemCommand(&[_][]const u8{"./scripts/gen-libkrunfw.sh"});
+    libkrunfw_cmd.step.dependOn(&rewrite_kernel_cmd.step);
+    const libkrunfw_step = b.step("libkrunfw", "build libkrunfw compatible shared library");
+    libkrunfw_step.dependOn(&libkrunfw_cmd.step);
+
     const debug_cmd_str = run_cmd_str ++ [_][]const u8{
         "--debug",
     };
