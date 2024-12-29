@@ -41,9 +41,11 @@ export fn bspEarlyInit(boot_magic: u32, boot_params: u32) align(16) callconv(.C)
     timer.init();
     interrupt.init();
     mem.init(bootinfo);
-    pci.init();
-    log.debug.print("pci init finish\n");
-    if (param.params.isNetworkEnabled()) {
+    if (options.enable_pci) {
+        pci.init();
+        log.debug.print("pci init finish\n");
+    }
+    if (options.enable_pci and param.params.isNetworkEnabled()) {
         virtio_net.init();
     }
 

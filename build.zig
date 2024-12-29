@@ -11,6 +11,7 @@ const BuildParams = struct {
     dir_path: ?[]const u8 = undefined,
     is_test: bool = undefined,
     log_level: []const u8 = undefined,
+    enable_pci: bool = true,
 
     const Self = @This();
 
@@ -50,6 +51,11 @@ const BuildParams = struct {
             params.is_test = false;
         }
 
+        const enable_pci_option = b.option(bool, "enable-pci", "enable PCI (default: true)");
+        if (enable_pci_option) |p| {
+            params.enable_pci = p;
+        }
+
         return params;
     }
 
@@ -70,6 +76,8 @@ const BuildParams = struct {
         } else {
             options.addOption(bool, "has_fs", false);
         }
+
+        options.addOption(bool, "enable_pci", self.enable_pci);
 
         return options;
     }
