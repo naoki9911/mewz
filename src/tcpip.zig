@@ -325,7 +325,7 @@ pub extern fn init(ip: u32, netmask: u32, gateway: u32, macaddr: *[6]u8) void;
 
 export fn transmit(addr: [*c]u8, size: u32) callconv(.C) void {
     const data = addr[0..size];
-    virito_net.virtio_net.transmit(data);
+    virito_net.virtio_net.?.transmit(data);
 }
 
 export fn socketPush(fd: i32, ptr: [*]u8, len: usize) i32 {
