@@ -19,8 +19,14 @@ pub var params = Params{};
 
 // TODO: Add tests
 pub fn parseFromArgs(args: []const u8) void {
+    log.debug.printf("params = '{s}'\n", .{args});
     var params_itr = std.mem.splitScalar(u8, args, ' ');
-    while (params_itr.next()) |part| {
+    while (params_itr.next()) |part_raw| {
+        var part = part_raw;
+        // parse including eivonrment variables(e.g. "ip=192.168.10.1/24")
+        if (part.len > 0 and part[0] == '"' and part[part.len - 1] == '"') {
+            part = part[1 .. part.len - 1];
+        }
         var kv = std.mem.splitScalar(u8, part, '=');
 
         const k = kv.next() orelse continue;
