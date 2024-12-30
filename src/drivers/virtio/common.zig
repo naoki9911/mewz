@@ -3,6 +3,7 @@ const ioapic = @import("../../ioapic.zig");
 const log = @import("../../log.zig");
 const mem = @import("../../mem.zig");
 const pci = @import("../../pci.zig");
+const VirtioMMIO = @import("mmio.zig").VirtioMMIO;
 
 const Allocator = std.mem.Allocator;
 
@@ -13,9 +14,17 @@ const VIRTIO_PCI_CAP_DEVICE_CFG: u8 = 4;
 
 pub const VIRTQ_AVAIL_F_NO_INTERRUPT: u16 = 1;
 
+pub fn Virtio(comptime DeviceConfigType: type) type {
+    return union(enum) {
+        pci: VirtioPCI(DeviceConfigType),
+        mmio: VirtioMMIO(DeviceConfigType),
+    };
+}
+
 const Error = std.mem.Allocator.Error;
 
 pub const IsrStatus = enum(u32) {
+    NONE = 0x0, // TODO:what is this?
     QUEUE = 0x1,
     CONFIG = 0x2,
 
@@ -26,7 +35,7 @@ pub const IsrStatus = enum(u32) {
     }
 };
 
-pub fn Virtio(comptime DeviceConfigType: type) type {
+pub fn VirtioPCI(comptime DeviceConfigType: type) type {
     return struct {
         transport: VirtioMmioTransport(DeviceConfigType),
         virtqueues: []Virtqueue,
@@ -90,7 +99,7 @@ pub const Virtqueue = struct {
 
     const Self = @This();
 
-    fn new(index: u16, queue_size: u16, allocator: Allocator) Error!Self {
+    pub fn new(index: u16, queue_size: u16, allocator: Allocator) Error!Self {
         const desc_slice = try allocator.alignedAlloc(VirtqDesc, 16, queue_size * @sizeOf(VirtqDesc));
         @memset(desc_slice, VirtqDesc{ .addr = 0, .len = 0, .flags = 0, .next = 0 });
         const desc = @as([*]volatile VirtqDesc, @ptrCast(desc_slice));
@@ -312,7 +321,7 @@ pub const AvailRing = struct {
         };
     }
 
-    fn addr(self: Self) usize {
+    pub fn addr(self: Self) usize {
         return @intFromPtr(self.data.ptr);
     }
 
@@ -363,7 +372,7 @@ pub const UsedRing = struct {
         };
     }
 
-    fn addr(self: Self) usize {
+    pub fn addr(self: Self) usize {
         return @intFromPtr(self.data.ptr);
     }
 
@@ -417,7 +426,7 @@ pub const DeviceStatus = enum(u8) {
 
     const Self = @This();
 
-    fn toInt(self: Self) u8 {
+    pub fn toInt(self: Self) u8 {
         return @intFromEnum(self);
     }
 };

@@ -5,6 +5,8 @@ const log = @import("../../log.zig");
 const lwip = @import("../../lwip.zig");
 const mem = @import("../../mem.zig");
 const pci = @import("../../pci.zig");
+const param = @import("../../param.zig");
+const virtio_mmio = @import("mmio.zig");
 
 const PACKET_MAX_LEN = 2048;
 
@@ -65,7 +67,9 @@ const VirtioNet = struct {
     const Self = @This();
 
     fn new(virtio: common.Virtio(VirtioNetDeviceConfig)) Self {
-        const mac_addr = @as(*[6]u8, @ptrCast(@volatileCast(&virtio.transport.device_config.mac))).*;
+        const mac_addr = switch (virtio) {
+            inline else => |v| @as(*[6]u8, @ptrCast(@volatileCast(&v.transport.device_config.mac))).*,
+        };
         log.info.printf("mac: {x}:{x}:{x}:{x}:{x}:{x}\n", .{ mac_addr[0], mac_addr[1], mac_addr[2], mac_addr[3], mac_addr[4], mac_addr[5] });
 
         var self = Self{
@@ -89,7 +93,9 @@ const VirtioNet = struct {
             };
             var chain = [1]common.VirtqDescBuffer{desc_buf};
             self.receiveq().enqueue(chain[0..1]);
-            self.virtio.transport.notifyQueue(self.receiveq());
+            switch (self.virtio) {
+                inline else => |*v| v.transport.notifyQueue(self.receiveq()),
+            }
         }
 
         self.transmitq().avail.flags().* = common.VIRTQ_AVAIL_F_NO_INTERRUPT;
@@ -98,11 +104,15 @@ const VirtioNet = struct {
     }
 
     fn receiveq(self: *Self) *common.Virtqueue {
-        return &self.virtio.virtqueues[0];
+        switch (self.virtio) {
+            inline else => |v| return &v.virtqueues[0],
+        }
     }
 
     fn transmitq(self: *Self) *common.Virtqueue {
-        return &self.virtio.virtqueues[1];
+        switch (self.virtio) {
+            inline else => |v| return &v.virtqueues[1],
+        }
     }
 
     pub fn transmit(
@@ -138,12 +148,16 @@ const VirtioNet = struct {
         self.transmitq().enqueue(desc_buf[0..1]);
 
         if (self.transmitq().not_notified_num_descs > self.transmitq().num_descs / 2) {
-            self.virtio.transport.notifyQueue(self.transmitq());
+            switch (self.virtio) {
+                inline else => |*v| v.transport.notifyQueue(self.transmitq()),
+            }
         }
     }
 
     pub fn receive(self: *Self) void {
-        const isr = self.virtio.transport.getIsr();
+        const isr = switch (self.virtio) {
+            inline else => |*v| v.transport.getIsr(),
+        };
         if (isr.isQueue()) {
             lwip.acquire().sys_check_timeouts();
             lwip.release();
@@ -166,7 +180,9 @@ const VirtioNet = struct {
             }
 
             if (rq.not_notified_num_descs > rq.num_descs / 2) {
-                self.virtio.transport.notifyQueue(self.receiveq());
+                switch (self.virtio) {
+                    inline else => |*v| v.transport.notifyQueue(self.receiveq()),
+                }
             }
         }
     }
@@ -181,25 +197,47 @@ const VirtioNetDeviceConfig = packed struct {
     duplex: u8,
 };
 
-pub fn init() void {
-    var pci_dev = find: {
+pub fn init(enable_pci: bool) void {
+    if (enable_pci) {
         for (pci.devices) |d| {
-            const dev = d orelse continue;
+            var dev = d orelse continue;
             if (dev.config.vendor_id == 0x1af4 and dev.config.device_id == 0x1041) {
-                break :find dev;
+                initPCI(&dev);
+                return;
             }
         }
-        @panic("virtio net is not found");
-    };
+    }
+    for (param.params.mmio_devices) |d| {
+        const dev = d orelse continue;
+        if (dev.dev_reg.device_id == 1) {
+            log.info.print("virtio.net: found mmio device\n");
+            initMMIO(dev);
+            log.info.print("virtio.net: initialized mmio device\n");
+            return;
+        }
+    }
+    @panic("virtio net is not found");
+}
 
+fn initPCI(dev: *pci.Device) void {
     // TODO: VIRTIO_F_VERSION_1
-    const virtio = common.Virtio(VirtioNetDeviceConfig)
-        .new(&pci_dev, (1 << 32) | @intFromEnum(VirtioNetDeviceFeature.VIRTIO_NET_F_MAC), 2, mem.boottime_allocator.?) catch @panic("virtio init failed");
+    const virtio = common.VirtioPCI(VirtioNetDeviceConfig)
+        .new(dev, (1 << 32) | @intFromEnum(VirtioNetDeviceFeature.VIRTIO_NET_F_MAC), 2, mem.boottime_allocator.?) catch @panic("virtio init failed");
 
     const virtio_net_slice = mem.boottime_allocator.?.alloc(VirtioNet, 1) catch @panic("virtio net alloc failed");
     virtio_net = @as(*VirtioNet, @ptrCast(virtio_net_slice.ptr));
-    virtio_net.?.* = VirtioNet.new(virtio);
-    interrupt.registerIrq(virtio_net.?.virtio.transport.pci_dev.config.interrupt_line, handleIrq);
+    virtio_net.?.* = VirtioNet.new(.{ .pci = virtio });
+    interrupt.registerIrq(virtio.transport.pci_dev.config.interrupt_line, handleIrq);
+}
+
+fn initMMIO(dev: virtio_mmio.MMIODevice) void {
+    // TODO: VIRTIO_F_VERSION_1
+    // VIRTIO_NET_F_MAC is not supported in libkrun?
+    const virtio = virtio_mmio.VirtioMMIO(VirtioNetDeviceConfig).new(dev, (1 << 32), 2, mem.boottime_allocator.?) catch @panic("virtio init failed");
+    const virtio_net_slice = mem.boottime_allocator.?.alloc(VirtioNet, 1) catch @panic("virtio net alloc failed");
+    virtio_net = @as(*VirtioNet, @ptrCast(virtio_net_slice.ptr));
+    virtio_net.?.* = VirtioNet.new(.{ .mmio = virtio });
+    interrupt.registerIrq(virtio.transport.param.irq, handleIrq);
 }
 
 fn handleIrq(frame: *interrupt.InterruptFrame) void {
@@ -207,6 +245,11 @@ fn handleIrq(frame: *interrupt.InterruptFrame) void {
     log.debug.print("interrupt\n");
     if (virtio_net) |vn| {
         vn.receive();
+        // acknowledge irq
+        switch (vn.virtio) {
+            .mmio => |*m| m.transport.common_config.interuupt_ack = 1,
+            else => {},
+        }
     } else {
         @panic("virtio/net: handled interrupt, but the device is not registered");
     }
@@ -214,7 +257,9 @@ fn handleIrq(frame: *interrupt.InterruptFrame) void {
 
 pub fn flush() void {
     if (virtio_net) |vn| {
-        vn.virtio.transport.notifyQueue(vn.transmitq());
+        switch (vn.virtio) {
+            inline else => |*v| v.transport.notifyQueue(vn.transmitq()),
+        }
     } else {
         log.debug.printf("virtio/net: try to flush(), but the device is not registered\n", .{});
     }

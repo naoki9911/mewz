@@ -7,7 +7,7 @@ const Params = struct {
     addr: ?u32 = null,
     subnetmask: ?u32 = null,
     gateway: ?u32 = null,
-    mmio_devices: [10]?virtio_mmio.MMIODeviceParam = [_]?virtio_mmio.MMIODeviceParam{null} ** 10,
+    mmio_devices: [10]?virtio_mmio.MMIODevice = [_]?virtio_mmio.MMIODevice{null} ** 10,
     mmio_device_num: usize = 0,
 
     pub fn isNetworkEnabled(self: Params) bool {
@@ -64,16 +64,16 @@ pub fn parseFromArgs(args: []const u8) void {
                 log.warn.printf("failed to parse {s}: {}\n", .{ addr_str, err });
                 continue;
             };
-            const irq_line = std.fmt.parseInt(usize, irq_str, 10) catch |err| {
+            const irq_line = std.fmt.parseInt(u8, irq_str, 10) catch |err| {
                 log.warn.printf("failed to parse {s}: {}\n", .{ irq_str, err });
                 continue;
             };
 
-            params.mmio_devices[params.mmio_device_num] = virtio_mmio.MMIODeviceParam{
+            params.mmio_devices[params.mmio_device_num] = virtio_mmio.MMIODevice.from_param(.{
                 .addr = addr,
                 .size = 4096,
                 .irq = irq_line,
-            };
+            });
             params.mmio_device_num += 1;
         } else {
             continue;

@@ -50,7 +50,7 @@ export fn bspEarlyInit(boot_magic: u32, boot_params: u32) align(16) callconv(.C)
         param.parseFromArgs(cmd_params);
         for (param.params.mmio_devices) |dev_param| {
             if (dev_param) |d| {
-                log.info.printf("virtio_mmio device detected: addr=0x{x} size=0x{x} IRQ={}\n", .{ d.addr, d.size, d.irq });
+                log.info.printf("virtio_mmio device detected: addr=0x{x} size=0x{x} IRQ={}\n", .{ d.param.addr, d.param.size, d.param.irq });
             }
         }
     }
@@ -59,8 +59,8 @@ export fn bspEarlyInit(boot_magic: u32, boot_params: u32) align(16) callconv(.C)
         pci.init();
         log.debug.print("pci init finish\n");
     }
-    if (options.enable_pci and param.params.isNetworkEnabled()) {
-        virtio_net.init();
+    if (param.params.isNetworkEnabled()) {
+        virtio_net.init(options.enable_pci);
     }
 
     mem.init2();
