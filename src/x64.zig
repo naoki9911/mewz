@@ -134,6 +134,10 @@ pub fn xchg(addr: *u32, newval: u32) u32 {
     );
 }
 
+pub fn mfence() void {
+    asm volatile ("mfence");
+}
+
 pub fn shutdown(status: u16) void {
     out(0x501, status);
 }
