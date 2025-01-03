@@ -91,9 +91,11 @@ export fn bspEarlyInit(boot_magic: u32, boot_params: u32) align(16) callconv(.C)
     _ = wasi.memory_grow;
     _ = heap.sbrk;
 
-    x64.shutdown(0);
-    // libkrun traps this to shutdown itself.
-    x64.i8042_reset();
+    while (true) {
+        x64.shutdown(0);
+        // libkrun traps this to shutdown itself.
+        x64.i8042_reset();
+    }
     unreachable;
 }
 
