@@ -66,10 +66,12 @@ pub const Config = packed struct {
         };
 
         if ((value & 1) == 0) {
+            log.debug.print("BAR is mapped to memory\n");
             return value & 0xfffffff0;
+        } else {
+            log.debug.print("BAR is mapped to I/O space\n");
+            return value & 0xfffffffc;
         }
-
-        @panic("pci: IO space mapped BAR is not supported");
     }
 };
 
