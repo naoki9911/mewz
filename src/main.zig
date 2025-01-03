@@ -17,6 +17,7 @@ const timer = @import("timer.zig");
 const util = @import("util.zig");
 const multiboot = @import("multiboot.zig");
 const virtio_net = @import("drivers/virtio/net.zig");
+const virtio_console = @import("drivers/virtio/console.zig");
 const interrupt = @import("interrupt.zig");
 const x64 = @import("x64.zig");
 const zeropage = @import("zeropage.zig");
@@ -59,6 +60,7 @@ export fn bspEarlyInit(boot_magic: u32, boot_params: u32) align(16) callconv(.C)
         pci.init();
         log.debug.print("pci init finish\n");
     }
+    virtio_console.init(options.enable_pci);
     if (param.params.isNetworkEnabled()) {
         virtio_net.init(options.enable_pci);
     }
@@ -72,6 +74,11 @@ export fn bspEarlyInit(boot_magic: u32, boot_params: u32) align(16) callconv(.C)
     uart.putc('\n');
 
     asm volatile ("sti");
+
+    if (virtio_console.virtio_con) |vc| {
+        // wait for virtio.console to be available.
+        while (!vc.port0_opened) {}
+    }
 
     if (options.is_test) {
         wasi.integrationTest();
