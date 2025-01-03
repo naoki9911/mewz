@@ -41,8 +41,3 @@ pub fn puts(data: []const u8) void {
         putc(c);
     }
 }
-
-pub fn write(data: []const u8) usize {
-    puts(data);
-    return data.len;
-}

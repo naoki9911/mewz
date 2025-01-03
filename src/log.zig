@@ -2,7 +2,7 @@ const std = @import("std");
 const fmt = std.fmt;
 const options = @import("options");
 
-const uart = @import("uart.zig");
+const console = @import("console.zig");
 
 const LogLevel = enum(u8) {
     Debug = 1,
@@ -68,8 +68,9 @@ pub const fatal = init: {
 pub fn impl(comptime level: []const u8) type {
     return struct {
         pub fn print(s: []const u8) void {
-            uart.puts("[LOG " ++ level ++ "]: ");
-            uart.puts(s);
+            const prefix = "[LOG " ++ level ++ "]: ";
+            _ = console.write(prefix, true);
+            _ = console.write(s, false);
         }
 
         pub fn printf(comptime format: []const u8, args: anytype) void {

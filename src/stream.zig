@@ -1,6 +1,6 @@
 const fs = @import("fs.zig");
 const log = @import("log.zig");
-const uart = @import("uart.zig");
+const console = @import("console.zig");
 const tcpip = @import("tcpip.zig");
 const sync = @import("sync.zig");
 
@@ -97,7 +97,7 @@ pub const Stream = union(enum) {
 
     pub fn write(self: *Self, buffer: []u8) Error!usize {
         return switch (self.*) {
-            Self.uart => uart.write(buffer),
+            Self.uart => console.write(buffer, true),
             Self.socket => |*sock| sock.send(buffer),
             Self.opened_file => @panic("unimplemented"),
             Self.dir => @panic("unimplemented"),

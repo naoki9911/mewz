@@ -120,7 +120,7 @@ pub fn MMIOTransport(comptime DeviceConfigType: type) type {
 
         pub fn getIsr(self: *Self) common.IsrStatus {
             const isr = self.common_config.interrupt_status;
-            log.debug.printf("ISR={}\n", .{isr});
+            //log.debug.printf("ISR={}\n", .{isr});
             return @as(common.IsrStatus, @enumFromInt(isr));
         }
     };
