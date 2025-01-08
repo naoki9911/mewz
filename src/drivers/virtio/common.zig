@@ -163,6 +163,7 @@ pub const Virtqueue = struct {
             }
         }
 
+        //log.fatal.printf("num_free_descs={} chain.len={}\n", .{ self.num_free_descs, chain.len });
         self.num_free_descs -= @as(u16, @intCast(chain.len));
         self.not_notified_num_descs += @as(u16, @intCast(chain.len));
 

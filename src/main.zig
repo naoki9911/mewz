@@ -18,6 +18,7 @@ const util = @import("util.zig");
 const multiboot = @import("multiboot.zig");
 const virtio_net = @import("drivers/virtio/net.zig");
 const virtio_console = @import("drivers/virtio/console.zig");
+const virtio_vsock = @import("drivers/virtio/vsock.zig");
 const interrupt = @import("interrupt.zig");
 const x64 = @import("x64.zig");
 const zeropage = @import("zeropage.zig");
@@ -61,6 +62,7 @@ export fn bspEarlyInit(boot_magic: u32, boot_params: u32) align(16) callconv(.C)
         log.debug.print("pci init finish\n");
     }
     virtio_console.init(options.enable_pci);
+    virtio_vsock.init(options.enable_pci);
     if (param.params.isNetworkEnabled()) {
         virtio_net.init(options.enable_pci);
     }
