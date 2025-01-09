@@ -290,7 +290,9 @@ pub fn init(enable_pci: bool) void {
         for (pci.devices) |d| {
             var dev = d orelse continue;
             if (dev.config.vendor_id == 0x1af4 and dev.config.device_id == 0x1003) {
+                log.info.print("virito.console: device found\n");
                 initPCI(&dev);
+                log.info.print("virito.console: initialized pci device\n");
                 return;
             }
         }
