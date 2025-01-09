@@ -242,7 +242,8 @@ fn initMMIO(dev: virtio_mmio.MMIODevice) void {
 
 fn handleIrq(frame: *interrupt.InterruptFrame) void {
     _ = frame;
-    log.debug.print("interrupt\n");
+    log.debug.print("virtio.net: interrupt\n");
+    defer log.debug.print("virtio.net: interrupt done\n");
     if (virtio_net) |vn| {
         vn.receive();
         // acknowledge irq
