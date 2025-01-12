@@ -1,0 +1,7 @@
+[package]
+name = "echo_server_vsock"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+wasmedge_wasi_socket = { path = "../../../wasmedge_wasi_socket" }
