@@ -19,6 +19,7 @@ const multiboot = @import("multiboot.zig");
 const virtio_net = @import("drivers/virtio/net.zig");
 const virtio_console = @import("drivers/virtio/console.zig");
 const virtio_vsock = @import("drivers/virtio/vsock.zig");
+const vsock = @import("vsock.zig");
 const interrupt = @import("interrupt.zig");
 const x64 = @import("x64.zig");
 const zeropage = @import("zeropage.zig");
@@ -73,6 +74,9 @@ export fn bspEarlyInit(boot_magic: u32, boot_params: u32) align(16) callconv(.C)
     }
     fs.init();
 
+    if (virtio_vsock.virtio_vsock != null) {
+        vsock.init();
+    }
     uart.putc('\n');
 
     asm volatile ("sti");

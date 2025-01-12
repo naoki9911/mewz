@@ -247,6 +247,7 @@ pub const FileType = enum(u8) {
         return switch (s.*) {
             Stream.uart => Self.CharacterDevice,
             Stream.socket => Self.SocketStream,
+            Stream.vsock => Self.SocketStream,
             Stream.opened_file => Self.RegularFile,
             Stream.dir => Self.Directory,
         };
@@ -339,6 +340,7 @@ pub const AddressFamily = enum(i32) {
     Unspec = 0,
     INET4 = 1,
     INET6 = 2,
+    VSOCK = 40,
 };
 
 pub const SocketType = enum(i32) {

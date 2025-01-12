@@ -3,9 +3,11 @@ const log = @import("log.zig");
 const console = @import("console.zig");
 const tcpip = @import("tcpip.zig");
 const sync = @import("sync.zig");
+const vsock = @import("vsock.zig");
 
 const Directory = fs.Directory;
 const Socket = tcpip.Socket;
+const VSocket = vsock.VsockSocket;
 const SpinLock = sync.SpinLock;
 const OpenedFile = fs.OpenedFile;
 
@@ -32,6 +34,11 @@ const FdTable = struct {
     pub fn get(self: *Self, fd: i32) ?*Stream {
         const streams = self.streams.acquire();
         defer self.streams.release();
+
+        if (fd >= streams.len) {
+            return null;
+        }
+
         const s = &streams.*[@as(usize, @intCast(fd))];
         if (s.* == null) {
             return null;
@@ -58,6 +65,9 @@ const FdTable = struct {
                     Stream.socket => |*sock| {
                         sock.setFd(new_fd);
                     },
+                    Stream.vsock => |*vs| {
+                        vs.setFd(new_fd);
+                    },
                     Stream.opened_file => {},
                     Stream.dir => {},
                 }
@@ -79,6 +89,7 @@ const FdTable = struct {
 pub const Stream = union(enum) {
     uart: void,
     socket: Socket,
+    vsock: VSocket,
     opened_file: OpenedFile,
     dir: Directory,
 
@@ -90,6 +101,7 @@ pub const Stream = union(enum) {
         return switch (self.*) {
             Self.uart => @panic("unimplemented"),
             Self.socket => |*sock| sock.read(buffer),
+            Self.vsock => |*vs| vs.read(buffer),
             Self.opened_file => |*f| f.read(buffer),
             Self.dir => @panic("unimplemented"),
         };
@@ -99,6 +111,7 @@ pub const Stream = union(enum) {
         return switch (self.*) {
             Self.uart => console.write(buffer, true),
             Self.socket => |*sock| sock.send(buffer),
+            Self.vsock => |*vs| vs.write(buffer),
             Self.opened_file => @panic("unimplemented"),
             Self.dir => @panic("unimplemented"),
         };
@@ -108,6 +121,7 @@ pub const Stream = union(enum) {
         return switch (self.*) {
             Self.uart => @panic("unimplemented"),
             Self.socket => |*sock| sock.close(),
+            Self.vsock => |*vs| vs.close(),
             Self.opened_file => {},
             Self.dir => {},
         };
@@ -117,6 +131,7 @@ pub const Stream = union(enum) {
         return switch (self.*) {
             Self.uart => 0,
             Self.socket => 0,
+            Self.vsock => 0,
             Self.opened_file => 0,
             Self.dir => 0,
         };
@@ -126,6 +141,7 @@ pub const Stream = union(enum) {
         switch (self.*) {
             Self.uart => @panic("unimplemented"),
             Self.socket => |*sock| sock.*.flags |= f,
+            Self.vsock => |*vs| vs.setFlags(f),
             Self.opened_file => @panic("unimplemented"),
             Self.dir => @panic("unimplemented"),
         }
@@ -135,6 +151,7 @@ pub const Stream = union(enum) {
         return switch (self.*) {
             Self.uart => 1,
             Self.socket => |*sock| sock.bytesCanRead(),
+            Self.vsock => |*vs| vs.bytesCanRead(),
             Self.opened_file => |*f| f.inner.data.len - f.pos,
             Self.dir => 0,
         };
@@ -144,6 +161,7 @@ pub const Stream = union(enum) {
         return switch (self.*) {
             Self.uart => 1,
             Self.socket => |*sock| sock.bytesCanWrite(),
+            Self.vsock => |*vs| vs.bytesCanWrite(),
             Self.opened_file => 0,
             Self.dir => 0,
         };
@@ -153,6 +171,7 @@ pub const Stream = union(enum) {
         return switch (self.*) {
             Self.uart => 0,
             Self.socket => 0,
+            Self.vsock => 0,
             Self.opened_file => |*f| f.inner.data.len,
             Self.dir => 0,
         };

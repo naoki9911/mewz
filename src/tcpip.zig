@@ -318,6 +318,7 @@ fn wasiToLwipAddressType(t: wasi.AddressFamily) u8 {
         wasi.AddressFamily.INET4 => return 0,
         wasi.AddressFamily.INET6 => return 6,
         wasi.AddressFamily.Unspec => return 46,
+        wasi.AddressFamily.VSOCK => @panic("unimplemented"),
     }
 }
 

@@ -12,6 +12,7 @@ const tcpip = @import("tcpip.zig");
 const timer = @import("timer.zig");
 const types = @import("wasi/types.zig");
 const x64 = @import("x64.zig");
+const vsock = @import("vsock.zig");
 
 const Stream = stream.Stream;
 const WasiError = types.WasiError;
@@ -324,12 +325,16 @@ pub export fn sock_open(
     }
 
     switch (family) {
-        AddressFamily.INET4 => {},
+        AddressFamily.INET4 => {
+            const socket = tcpip.Socket.new(family, heap.runtime_allocator) catch return WasiError.NOMEM;
+            fd.* = stream.fd_table.set(Stream{ .socket = socket }) catch return WasiError.NOMEM;
+        },
+        AddressFamily.VSOCK => {
+            const vss = vsock.vsock_muxer.?.newSocket(.Stream);
+            fd.* = @intCast(vss.fd);
+        },
         else => return WasiError.INVAL,
     }
-
-    const socket = tcpip.Socket.new(family, heap.runtime_allocator) catch return WasiError.NOMEM;
-    fd.* = stream.fd_table.set(Stream{ .socket = socket }) catch return WasiError.NOMEM;
 
     return WasiError.SUCCESS;
 }
@@ -346,12 +351,16 @@ pub export fn sock_bind(
     const ip_iovec = @as(*IoVec, @ptrFromInt(@as(usize, @intCast(ip_iovec_addr)) + linear_memory_offset));
     const ip_addr_ptr = @as(*anyopaque, @ptrFromInt(@as(usize, @intCast(ip_iovec.buf)) + linear_memory_offset));
 
-    var s = stream.fd_table.get(fd) orelse return WasiError.BADF;
-    var socket = switch (s.*) {
-        Stream.socket => &s.socket,
+    const s = stream.fd_table.get(fd) orelse return WasiError.BADF;
+    switch (s.*) {
+        Stream.socket => |*socket| {
+            socket.bind(ip_addr_ptr, port) catch return WasiError.INVAL;
+        },
+        Stream.vsock => |*vss| {
+            vss.bind(@intCast(port)) catch return WasiError.INVAL;
+        },
         else => return WasiError.BADF,
-    };
-    socket.bind(ip_addr_ptr, port) catch return WasiError.INVAL;
+    }
 
     return WasiError.SUCCESS;
 }
@@ -359,12 +368,16 @@ pub export fn sock_bind(
 pub export fn sock_listen(fd: i32, backlog: i32) WasiError {
     log.debug.printf("WASI sock_listen: {d} {d}\n", .{ fd, backlog });
 
-    var s = stream.fd_table.get(fd) orelse return WasiError.BADF;
-    var socket = switch (s.*) {
-        Stream.socket => &s.socket,
+    const s = stream.fd_table.get(fd) orelse return WasiError.BADF;
+    switch (s.*) {
+        Stream.socket => |*socket| {
+            socket.listen(backlog) catch return WasiError.INVAL;
+        },
+        Stream.vsock => |*vss| {
+            vss.listen(@intCast(backlog)) catch return WasiError.INVAL;
+        },
         else => return WasiError.BADF,
-    };
-    socket.listen(backlog) catch return WasiError.INVAL;
+    }
 
     return WasiError.SUCCESS;
 }
@@ -372,17 +385,27 @@ pub export fn sock_listen(fd: i32, backlog: i32) WasiError {
 pub export fn sock_accept(fd: i32, new_fd_addr: i32) WasiError {
     log.debug.printf("WASI sock_accept: {d} {d}\n", .{ fd, new_fd_addr });
 
-    var s = stream.fd_table.get(fd) orelse return WasiError.BADF;
-    var socket = switch (s.*) {
-        Stream.socket => &s.socket,
+    const s = stream.fd_table.get(fd) orelse return WasiError.BADF;
+    const new_fd_val = switch (s.*) {
+        Stream.socket => |*socket| b: {
+            const new_fd = socket.accept() catch |err| {
+                switch (err) {
+                    tcpip.Socket.Error.Again => return WasiError.AGAIN,
+                    else => return WasiError.INVAL,
+                }
+            };
+            break :b new_fd;
+        },
+        Stream.vsock => |*vss| b: {
+            const new_sock = vss.accept() catch |err| {
+                switch (err) {
+                    tcpip.Socket.Error.Again => return WasiError.AGAIN,
+                    else => return WasiError.INVAL,
+                }
+            };
+            break :b new_sock.fd;
+        },
         else => return WasiError.BADF,
-    };
-
-    const new_fd_val = socket.accept() catch |err| {
-        switch (err) {
-            tcpip.Socket.Error.Again => return WasiError.AGAIN,
-            else => return WasiError.INVAL,
-        }
     };
 
     const new_fd_ptr = @as(*i32, @ptrFromInt(@as(usize, @intCast(new_fd_addr)) + linear_memory_offset));
@@ -403,11 +426,12 @@ const RoFlag = enum(i32) {
 pub export fn sock_recv(fd: i32, iovec_addr: i32, buf_len: i32, flags: i32, recv_len_addr: i32, oflags_addr: i32) WasiError {
     log.debug.printf("WASI sock_recv: {d} {d} {d} {d} {d} {d}\n", .{ fd, iovec_addr, buf_len, flags, recv_len_addr, oflags_addr });
 
-    var s = stream.fd_table.get(fd) orelse return WasiError.BADF;
-    var socket = switch (s.*) {
-        Stream.socket => &s.socket,
+    const s = stream.fd_table.get(fd) orelse return WasiError.BADF;
+    switch (s.*) {
+        Stream.socket => {},
+        Stream.vsock => {},
         else => return WasiError.BADF,
-    };
+    }
 
     var iovec_ptr = @as([*]IoVec, @ptrFromInt(@as(usize, @intCast(iovec_addr)) + linear_memory_offset));
     const iovecs = iovec_ptr[0..@as(usize, @intCast(buf_len))];
@@ -425,7 +449,12 @@ pub export fn sock_recv(fd: i32, iovec_addr: i32, buf_len: i32, flags: i32, recv
     const recv_len_ptr = @as(*i32, @ptrFromInt(@as(usize, @intCast(recv_len_addr)) + linear_memory_offset));
     const oflags_ptr = @as(*i32, @ptrFromInt(@as(usize, @intCast(oflags_addr)) + linear_memory_offset));
 
-    const recv_len = socket.read(buf) catch |err| {
+    const recv_len_err = switch (s.*) {
+        Stream.socket => |*sock| sock.read(buf),
+        Stream.vsock => |*vss| vss.read(buf),
+        else => return WasiError.BADF,
+    };
+    const recv_len = recv_len_err catch |err| {
         switch (err) {
             tcpip.Socket.Error.Again => return WasiError.AGAIN,
             else => return WasiError.INVAL,
@@ -448,11 +477,12 @@ pub export fn sock_send(fd: i32, buf_iovec_addr: i32, buf_len: i32, flags: i32, 
 
     @setRuntimeSafety(false);
 
-    var s = stream.fd_table.get(fd) orelse return WasiError.BADF;
-    var socket = switch (s.*) {
-        Stream.socket => &s.socket,
+    const s = stream.fd_table.get(fd) orelse return WasiError.BADF;
+    switch (s.*) {
+        Stream.socket => {},
+        Stream.vsock => {},
         else => return WasiError.BADF,
-    };
+    }
 
     var iovec_ptr = @as([*]IoVec, @ptrFromInt(@as(usize, @intCast(buf_iovec_addr)) + linear_memory_offset));
     const iovecs = iovec_ptr[0..@as(usize, @intCast(buf_len))];
@@ -463,7 +493,12 @@ pub export fn sock_send(fd: i32, buf_iovec_addr: i32, buf_len: i32, flags: i32, 
         const len = @as(usize, @intCast(iovecs[0].buf_len));
         const buf = @as([*]u8, @ptrFromInt(addr))[0..len];
 
-        const sent_len = socket.send(buf) catch |err| {
+        const sent_len_err = switch (s.*) {
+            Stream.socket => |*sock| sock.send(buf),
+            Stream.vsock => |*vss| vss.write(buf),
+            else => return WasiError.BADF,
+        };
+        const sent_len = sent_len_err catch |err| {
             switch (err) {
                 tcpip.Socket.Error.Again => return WasiError.AGAIN,
                 else => return WasiError.INVAL,
@@ -481,7 +516,17 @@ pub export fn sock_send(fd: i32, buf_iovec_addr: i32, buf_len: i32, flags: i32, 
 
     const send_len_ptr = @as(*i32, @ptrFromInt(@as(usize, @intCast(send_len_addr)) + linear_memory_offset));
 
-    const sent_len = socket.send(buf) catch return WasiError.INVAL;
+    const sent_len_err = switch (s.*) {
+        Stream.socket => |*sock| sock.send(buf),
+        Stream.vsock => |*vss| vss.write(buf),
+        else => return WasiError.BADF,
+    };
+    const sent_len = sent_len_err catch |err| {
+        switch (err) {
+            tcpip.Socket.Error.Again => return WasiError.AGAIN,
+            else => return WasiError.INVAL,
+        }
+    };
     log.debug.printf("WASI sock_send: sent {d} bytes\n", .{sent_len});
     send_len_ptr.* = @as(i32, @intCast(sent_len));
 
@@ -493,16 +538,18 @@ pub export fn sock_connect(fd: i32, buf_ioved_addr: i32, port: i32) WasiError {
 
     @setRuntimeSafety(false);
 
-    var s = stream.fd_table.get(fd) orelse return WasiError.BADF;
-    var socket = switch (s.*) {
-        Stream.socket => &s.socket,
+    const s = stream.fd_table.get(fd) orelse return WasiError.BADF;
+    switch (s.*) {
+        Stream.socket => |*socket| {
+            const buf_iovec = @as(*IoVec, @ptrFromInt(@as(usize, @intCast(buf_ioved_addr)) + linear_memory_offset));
+            const ip_addr_ptr = @as(*anyopaque, @ptrFromInt(@as(usize, @intCast(buf_iovec.buf)) + linear_memory_offset));
+            socket.connect(ip_addr_ptr, port) catch return WasiError.INVAL;
+        },
+        Stream.vsock => |*vss| {
+            vss.connect(2, @intCast(port)) catch return WasiError.INVAL;
+        },
         else => return WasiError.BADF,
-    };
-
-    const buf_iovec = @as(*IoVec, @ptrFromInt(@as(usize, @intCast(buf_ioved_addr)) + linear_memory_offset));
-    const ip_addr_ptr = @as(*anyopaque, @ptrFromInt(@as(usize, @intCast(buf_iovec.buf)) + linear_memory_offset));
-
-    socket.connect(ip_addr_ptr, port) catch return WasiError.INVAL;
+    }
 
     return WasiError.SUCCESS;
 }
@@ -512,16 +559,18 @@ pub export fn sock_shutdown(fd: i32, flag: ShutdownFlag) WasiError {
 
     @setRuntimeSafety(false);
 
-    var s = stream.fd_table.get(fd) orelse return WasiError.BADF;
-    var socket = switch (s.*) {
-        Stream.socket => &s.socket,
+    const s = stream.fd_table.get(fd) orelse return WasiError.BADF;
+    switch (s.*) {
+        Stream.socket => |*socket| {
+            const read_flag = flag.isRead();
+            const write_flag = flag.isWrite();
+            socket.shutdown(read_flag, write_flag) catch return WasiError.INVAL;
+        },
+        Stream.vsock => |*vss| {
+            vss.shutdown();
+        },
         else => return WasiError.BADF,
-    };
-
-    const read_flag = flag.isRead();
-    const write_flag = flag.isWrite();
-
-    socket.shutdown(read_flag, write_flag) catch return WasiError.INVAL;
+    }
 
     return WasiError.SUCCESS;
 }
@@ -534,6 +583,7 @@ pub export fn sock_getpeeraddr(fd: i32, ip_iovec_addr: i32, type_addr: i32, port
     var s = stream.fd_table.get(fd) orelse return WasiError.BADF;
     var socket = switch (s.*) {
         Stream.socket => &s.socket,
+        Stream.vsock => @panic("unimplemented! sock_getpeeraddr for vsock"),
         else => return WasiError.BADF,
     };
 
@@ -601,6 +651,7 @@ pub export fn sock_getlocaladdr(fd: i32, ip_iovec_addr: i32, type_addr: i32, por
     var s = stream.fd_table.get(fd) orelse return WasiError.BADF;
     var socket = switch (s.*) {
         Stream.socket => &s.socket,
+        Stream.vsock => @panic("unimplemented! sock_getlocaladdr for vsock"),
         else => return WasiError.BADF,
     };
 
