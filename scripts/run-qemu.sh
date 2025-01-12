@@ -11,14 +11,16 @@ QEMU_ARGS=(
     "Icelake-Server"
     "-m"
     "512"
-    "-device"
-    "virtio-serial"
-    "-device"
-    "virtconsole,chardev=my_console"
-    "-chardev"
-    "socket,id=my_console,host=127.0.0.1,port=3334,server"
+    #"-device"
+    #"virtio-serial"
+    #"-device"
+    #"virtconsole,chardev=my_console"
+    #"-chardev"
+    #"socket,id=my_console,host=127.0.0.1,port=3334,server"
     "-device"
     "virtio-net,netdev=net0,disable-legacy=on,disable-modern=off"
+    "-device"
+    "vhost-vsock-pci,guest-cid=3"
     "-netdev"
     "user,id=net0,hostfwd=tcp:0.0.0.0:1234-:1234"
     "-no-reboot"
@@ -59,7 +61,7 @@ if $DEBUG; then
 fi
 
 # Let x be the return code of Mewz. Then, the return code of QEMU is 2x+1.
-qemu-system-x86_64 "${QEMU_ARGS[@]}" || QEMU_RETURN_CODE=$(( $? ))
+sudo qemu-system-x86_64 "${QEMU_ARGS[@]}" || QEMU_RETURN_CODE=$(( $? ))
 RETURN_CODE=$(( (QEMU_RETURN_CODE-1)/2 ))
 
 exit $RETURN_CODE
