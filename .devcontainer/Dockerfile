@@ -3,7 +3,7 @@ FROM mcr.microsoft.com/devcontainers/rust:1-1-bookworm
 RUN apt-get update && apt-get install -y cmake vim gdb
 
 ARG LLVM_URL=https://github.com/llvm/llvm-project/releases/download/llvmorg-15.0.0/clang+llvm-15.0.0-x86_64-linux-gnu-rhel-8.4.tar.xz
-ARG ZIG_VERSION=zig-linux-x86_64-0.14.0-dev.2540+f857bf72e
+ARG ZIG_VERSION=0.14.0
 
 ENV PATH="/usr/bin/zig:${PATH}"
 ENV PATH=/usr/local/llvm/bin:$PATH
@@ -31,9 +31,9 @@ RUN apt-get update && \
     qemu-utils \
     cmake
 
-RUN curl -SL https://ziglang.org/builds/${ZIG_VERSION}.tar.xz \
+RUN curl -SL https://ziglang.org/download/${ZIG_VERSION}/zig-linux-x86_64-${ZIG_VERSION}.tar.xz \
     | tar -xJC /tmp \
-    && mv /tmp/${ZIG_VERSION} /usr/bin/zig
+    && sudo mv /tmp/zig-linux-x86_64-${ZIG_VERSION} /usr/bin/zig
 
 RUN mkdir -p /home/vscode/.config/gdb \
     && echo "add-auto-load-safe-path /workspaces/mewz/.gdbinit" > /home/vscode/.config/gdb/gdbinit

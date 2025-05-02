@@ -48,6 +48,7 @@ pub const runtime_allocator = Allocator{
 const raw_c_allocator_vtable = Allocator.VTable{
     .alloc = rawCAlloc,
     .resize = rawCResize,
+    .remap = Allocator.noRemap,
     .free = rawCFree,
 };
 
@@ -81,7 +82,7 @@ pub export fn sbrk(diff: i32) usize {
 fn rawCAlloc(
     _: *anyopaque,
     len: usize,
-    log2_ptr_align: u8,
+    log2_ptr_align: std.mem.Alignment,
     ret_addr: usize,
 ) ?[*]u8 {
     _ = ret_addr;
@@ -89,7 +90,7 @@ fn rawCAlloc(
     _ = lock.acquire();
     defer lock.release();
 
-    if (log2_ptr_align > comptime std.math.log2_int(usize, @alignOf(std.c.max_align_t))) {
+    if (@intFromEnum(log2_ptr_align) > comptime std.math.log2_int(usize, @alignOf(std.c.max_align_t))) {
         @panic("rawCAlloc: alignment too small");
     }
 
@@ -105,7 +106,7 @@ fn rawCAlloc(
 fn rawCResize(
     _: *anyopaque,
     buf: []u8,
-    log2_old_align: u8,
+    log2_old_align: std.mem.Alignment,
     new_len: usize,
     ret_addr: usize,
 ) bool {
@@ -121,7 +122,7 @@ fn rawCResize(
 fn rawCFree(
     _: *anyopaque,
     buf: []u8,
-    log2_old_align: u8,
+    log2_old_align: std.mem.Alignment,
     ret_addr: usize,
 ) void {
     _ = log2_old_align;

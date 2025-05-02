@@ -1,6 +1,6 @@
 FROM ghcr.io/mewz-project/wasker:latest
 
-ARG ZIG_VERSION=zig-linux-x86_64-0.14.0-dev.2540+f857bf72e
+ARG ZIG_VERSION=0.14.0
 
 ENV PATH="/usr/bin/zig:${PATH}"
 
@@ -11,9 +11,9 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-RUN curl -SL https://ziglang.org/builds/${ZIG_VERSION}.tar.xz \
+RUN curl -SL https://ziglang.org/download/${ZIG_VERSION}/zig-linux-x86_64-${ZIG_VERSION}.tar.xz \
     | tar -xJC /tmp \
-    && mv /tmp/${ZIG_VERSION} /usr/bin/zig
+    && mv /tmp/zig-linux-x86_64-${ZIG_VERSION} /usr/bin/zig
 
 COPY . .
 
