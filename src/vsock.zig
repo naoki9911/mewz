@@ -278,6 +278,10 @@ pub const VsockSocket = struct {
     fn isNonBlocking(self: *Self) bool {
         return self.flags & types.FdFlag.NonBlock.toInt() != 0;
     }
+
+    pub fn getKey(self: Self) u64 {
+        return @as(u64, self.peer_port) << 32 | self.my_port;
+    }
 };
 
 pub const SocketType = enum(u16) {
@@ -346,6 +350,7 @@ pub const VsockMuxer = struct {
             @panic("vsock.muxer: unexpected behavior");
         }
         sock_map.put(key, sock) catch @panic("vsock.muxer.bind: failed to put socket to socket map");
+        log.info.printf("vsock.muxer: new socket (key=0x{x})\n", .{key});
 
         return sock;
     }
@@ -426,6 +431,7 @@ pub const VsockMuxer = struct {
         }
 
         const op: VirtioVsockOp = @enumFromInt(hdr.op);
+        log.info.printf("vsock.muxer: process_rx op={}\n", .{op});
         switch (op) {
             .VIRTIO_VSOCK_OP_INVALID => self.handle_op_invalid(hdr),
             .VIRTIO_VSOCK_OP_REQUEST => self.handle_op_request(hdr),
@@ -513,7 +519,7 @@ pub const VsockMuxer = struct {
     }
 
     fn handle_op_rw(self: *Self, hdr: *const Header, data: *const []u8) void {
-        log.debug.print("vsock.muxer: received VSOCK_OP_RW\n");
+        log.info.print("vsock.muxer: received VSOCK_OP_RW\n");
         const sock_map = self.sock_map.acquire();
         defer self.sock_map.release();
 
@@ -523,7 +529,7 @@ pub const VsockMuxer = struct {
             key = hdr.dst_port;
         }
         if (sock_map.get(key)) |vss| {
-            log.debug.print("vsock.muxer: found socket\n");
+            log.info.print("vsock.muxer: found socket\n");
 
             // update flow control values
             vss.peer_buf_len = hdr.buf_alloc;
@@ -535,6 +541,7 @@ pub const VsockMuxer = struct {
             // this must be success because VirtioVsock has flow control.
             // TODO: handle buffer empty?
             buf.write(data.*) catch @panic("failed to write data");
+            log.info.printf("vsock.muxer: key=0x{x}: write data to buffer (len={})\n", .{ key, data.len });
 
             if (hdr.typ == @intFromEnum(SocketType.Stream)) {
                 // we need to sent this CREDIT every rw?
@@ -545,7 +552,7 @@ pub const VsockMuxer = struct {
             }
         } else if (hdr.typ == @intFromEnum(SocketType.Stream)) {
             // reject request
-            log.debug.print("vsock.muxer: not found socket\n");
+            log.info.print("vsock.muxer: not found socket\n");
             self.send_op_base(SocketType.Stream, hdr.src_cid, hdr.dst_port, hdr.src_port, .VIRTIO_VSOCK_OP_RST, 0);
         }
     }
@@ -564,6 +571,7 @@ pub const VsockMuxer = struct {
 
     fn send_op_base(self: *Self, sock_type: SocketType, dst_cid: u64, src_port: u32, dst_port: u32, op: VirtioVsockOp, flags: u32) void {
         const hdr = self.create_base_pkt(sock_type, dst_cid, src_port, dst_port, op, flags);
+        log.info.printf("vsock.muxer: send_op_base op={}\n", .{op});
         self.send_pkt(&hdr);
     }
 
@@ -596,6 +604,7 @@ pub const VsockMuxer = struct {
             self.send_op_base(SocketType.Stream, hdr.src_cid, hdr.dst_port, hdr.src_port, .VIRTIO_VSOCK_OP_RST, 0);
             return;
         }
+        //defer log.info.printf("vsock.muxer: handleNewConnection op={}\n", .{.VIRTIO_VSOCK_OP_RESPONSE});
 
         const sock = self.newSocketConnected(sock_map, vss.my_port, hdr.src_cid, hdr.src_port);
 

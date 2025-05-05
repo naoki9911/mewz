@@ -248,6 +248,7 @@ pub const FileType = enum(u8) {
             Stream.uart => Self.CharacterDevice,
             Stream.socket => Self.SocketStream,
             Stream.vsock => Self.SocketStream,
+            Stream.tsock => Self.SocketStream,
             Stream.opened_file => Self.RegularFile,
             Stream.dir => Self.Directory,
         };

@@ -262,6 +262,6 @@ pub fn flush() void {
             inline else => |*v| v.transport.notifyQueue(vn.transmitq()),
         }
     } else {
-        log.debug.printf("virtio/net: try to flush(), but the device is not registered\n", .{});
+        //log.debug.printf("virtio/net: try to flush(), but the device is not registered\n", .{});
     }
 }

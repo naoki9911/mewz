@@ -13,6 +13,7 @@ const timer = @import("timer.zig");
 const types = @import("wasi/types.zig");
 const x64 = @import("x64.zig");
 const vsock = @import("vsock.zig");
+const tsi = @import("tsi.zig");
 
 const Stream = stream.Stream;
 const WasiError = types.WasiError;
@@ -151,6 +152,7 @@ pub export fn fd_close(fd: i32) callconv(.C) WasiError {
     var s = stream.fd_table.get(fd) orelse return WasiError.BADF;
     s.close() catch return WasiError.BADF;
     stream.fd_table.remove(fd);
+    log.debug.printf("WASI fd_close: {d} done\n", .{fd});
     return WasiError.SUCCESS;
 }
 
@@ -326,8 +328,10 @@ pub export fn sock_open(
 
     switch (family) {
         AddressFamily.INET4 => {
-            const socket = tcpip.Socket.new(family, heap.runtime_allocator) catch return WasiError.NOMEM;
-            fd.* = stream.fd_table.set(Stream{ .socket = socket }) catch return WasiError.NOMEM;
+            //const socket = tcpip.Socket.new(family, heap.runtime_allocator) catch return WasiError.NOMEM;
+            //fd.* = stream.fd_table.set(Stream{ .socket = socket }) catch return WasiError.NOMEM;
+            const tsock = tsi.TsiSocket.new(family, heap.runtime_allocator) catch return WasiError.NOMEM;
+            fd.* = stream.fd_table.set(Stream{ .tsock = tsock }) catch return WasiError.NOMEM;
         },
         AddressFamily.VSOCK => {
             const vss = vsock.vsock_muxer.?.newSocket(.Stream);
@@ -359,6 +363,9 @@ pub export fn sock_bind(
         Stream.vsock => |*vss| {
             vss.bind(@intCast(port)) catch return WasiError.INVAL;
         },
+        Stream.tsock => |*ts| {
+            ts.bind(port) catch return WasiError.INVAL;
+        },
         else => return WasiError.BADF,
     }
 
@@ -375,6 +382,9 @@ pub export fn sock_listen(fd: i32, backlog: i32) WasiError {
         },
         Stream.vsock => |*vss| {
             vss.listen(@intCast(backlog)) catch return WasiError.INVAL;
+        },
+        Stream.tsock => |*ts| {
+            ts.listen(@intCast(backlog)) catch return WasiError.INVAL;
         },
         else => return WasiError.BADF,
     }
@@ -405,6 +415,15 @@ pub export fn sock_accept(fd: i32, new_fd_addr: i32) WasiError {
             };
             break :b new_sock.fd;
         },
+        Stream.tsock => |*ts| b: {
+            const new_fd = ts.accept() catch |err| {
+                switch (err) {
+                    tcpip.Socket.Error.Again => return WasiError.AGAIN,
+                    else => return WasiError.INVAL,
+                }
+            };
+            break :b new_fd.fd;
+        },
         else => return WasiError.BADF,
     };
 
@@ -429,6 +448,7 @@ pub export fn sock_recv(fd: i32, iovec_addr: i32, buf_len: i32, flags: i32, recv
     const s = stream.fd_table.get(fd) orelse return WasiError.BADF;
     switch (s.*) {
         Stream.socket => {},
+        Stream.tsock => {},
         Stream.vsock => {},
         else => return WasiError.BADF,
     }
@@ -451,6 +471,7 @@ pub export fn sock_recv(fd: i32, iovec_addr: i32, buf_len: i32, flags: i32, recv
 
     const recv_len_err = switch (s.*) {
         Stream.socket => |*sock| sock.read(buf),
+        Stream.tsock => |*sock| sock.read(buf),
         Stream.vsock => |*vss| vss.read(buf),
         else => return WasiError.BADF,
     };
@@ -480,6 +501,7 @@ pub export fn sock_send(fd: i32, buf_iovec_addr: i32, buf_len: i32, flags: i32, 
     const s = stream.fd_table.get(fd) orelse return WasiError.BADF;
     switch (s.*) {
         Stream.socket => {},
+        Stream.tsock => {},
         Stream.vsock => {},
         else => return WasiError.BADF,
     }
@@ -495,6 +517,7 @@ pub export fn sock_send(fd: i32, buf_iovec_addr: i32, buf_len: i32, flags: i32, 
 
         const sent_len_err = switch (s.*) {
             Stream.socket => |*sock| sock.send(buf),
+            Stream.tsock => |*sock| sock.write(buf),
             Stream.vsock => |*vss| vss.write(buf),
             else => return WasiError.BADF,
         };
@@ -518,6 +541,7 @@ pub export fn sock_send(fd: i32, buf_iovec_addr: i32, buf_len: i32, flags: i32, 
 
     const sent_len_err = switch (s.*) {
         Stream.socket => |*sock| sock.send(buf),
+        Stream.tsock => |*sock| sock.write(buf),
         Stream.vsock => |*vss| vss.write(buf),
         else => return WasiError.BADF,
     };
@@ -566,6 +590,9 @@ pub export fn sock_shutdown(fd: i32, flag: ShutdownFlag) WasiError {
             const write_flag = flag.isWrite();
             socket.shutdown(read_flag, write_flag) catch return WasiError.INVAL;
         },
+        Stream.tsock => |*tss| {
+            tss.shutdown();
+        },
         Stream.vsock => |*vss| {
             vss.shutdown();
         },
@@ -580,28 +607,34 @@ pub export fn sock_getpeeraddr(fd: i32, ip_iovec_addr: i32, type_addr: i32, port
 
     @setRuntimeSafety(false);
 
-    var s = stream.fd_table.get(fd) orelse return WasiError.BADF;
-    var socket = switch (s.*) {
-        Stream.socket => &s.socket,
+    const s = stream.fd_table.get(fd) orelse return WasiError.BADF;
+
+    var ip_addr: u32 = 0;
+    var port: i32 = 0;
+    switch (s.*) {
+        Stream.socket => |*socket| {
+            const remote_ip = socket.getRemoteAddr();
+            ip_addr = remote_ip.addr;
+            const remote_port = socket.getRemotePort();
+            port = @as(i32, @intCast(remote_port));
+        },
+        Stream.tsock => {}, //TODO
         Stream.vsock => @panic("unimplemented! sock_getpeeraddr for vsock"),
         else => return WasiError.BADF,
-    };
-
-    const remote_ip = socket.getRemoteAddr();
-    const remote_port = socket.getRemotePort();
+    }
 
     const ip_iovec = @as(*IoVec, @ptrFromInt(@as(usize, @intCast(ip_iovec_addr)) + linear_memory_offset));
     if (ip_iovec.buf_len < 4) {
         return WasiError.NOMEM;
     }
     const ip_addr_ptr = @as(*u32, @ptrFromInt(@as(usize, @intCast(ip_iovec.buf)) + linear_memory_offset));
-    ip_addr_ptr.* = remote_ip.addr;
+    ip_addr_ptr.* = ip_addr;
 
     const type_ptr = @as(*i32, @ptrFromInt(@as(usize, @intCast(type_addr)) + linear_memory_offset));
     type_ptr.* = @intFromEnum(AddressFamily.INET4);
 
     const port_ptr = @as(*i32, @ptrFromInt(@as(usize, @intCast(port_addr)) + linear_memory_offset));
-    port_ptr.* = remote_port;
+    port_ptr.* = port;
 
     return WasiError.SUCCESS;
 }
