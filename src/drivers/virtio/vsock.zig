@@ -169,11 +169,12 @@ const VirtioVsock = struct {
         }
     }
 
-    pub fn receive(self: *Self) void {
+    pub fn receive(self: *Self, forceReceive: bool) void {
         const isr = switch (self.virtio) {
             inline else => |*v| v.transport.getIsr(),
         };
-        if (isr.isQueue()) {
+        if (isr.isQueue() or forceReceive) {
+            var handled = false;
             const rq = self.receiveq();
             while (rq.last_used_idx != rq.used.idx().*) {
                 const chain = rq.popUsed(heap.runtime_allocator) catch @panic("failed to pop used descriptors") orelse continue;
@@ -199,10 +200,14 @@ const VirtioVsock = struct {
                 }
 
                 rq.enqueue(chain.desc_list.?);
+                handled = true;
             }
-        }
-        switch (self.virtio) {
-            inline else => |*v| v.transport.notifyQueue(self.receiveq()),
+
+            if (handled) {
+                switch (self.virtio) {
+                    inline else => |*v| v.transport.notifyQueue(self.receiveq()),
+                }
+            }
         }
     }
 };
@@ -254,13 +259,25 @@ fn handleIrq(frame: *interrupt.InterruptFrame) void {
     defer log.debug.print("virtio.vsock: intruupt done\n");
 
     if (virtio_vsock) |*vs| {
-        vs.receive();
+        vs.receive(false);
 
         // acknowledge irq
         switch (vs.virtio) {
             .mmio => |*m| m.transport.common_config.interuupt_ack = 1,
             else => {},
         }
+    } else {
+        log.warn.print("virtio.vsock: not initialized yet\n");
+    }
+}
+
+pub fn handleIrqTimer(frame: *interrupt.InterruptFrame) void {
+    _ = frame;
+    log.debug.print("virtio.vsock: timer interrupt\n");
+    defer log.debug.print("virtio.vsock: timer interrupt done\n");
+
+    if (virtio_vsock) |*vs| {
+        vs.receive(true);
     } else {
         log.warn.print("virtio.vsock: not initialized yet\n");
     }

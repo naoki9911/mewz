@@ -3,6 +3,7 @@ const heap = @import("heap.zig");
 const interrupt = @import("interrupt.zig");
 const sync = @import("sync.zig");
 const net = @import("drivers/virtio/net.zig");
+const vsock = @import("drivers/virtio/vsock.zig");
 
 const Allocator = std.mem.Allocator;
 const ArrayList = std.ArrayList;
@@ -46,8 +47,6 @@ pub const Timer = struct {
 };
 
 pub fn handleIrq(frame: *interrupt.InterruptFrame) void {
-    _ = frame;
-
     ticks.acquire().* += 1;
     ticks.release();
 
@@ -60,6 +59,7 @@ pub fn handleIrq(frame: *interrupt.InterruptFrame) void {
     }
     timers.release();
 
+    vsock.handleIrqTimer(frame);
     net.flush();
 }
 

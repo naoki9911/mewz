@@ -85,17 +85,10 @@ pub const TsiSocket = struct {
     }
 
     pub fn read(self: *Self, buffer: []u8) Error!usize {
-        const size = try self.dsock.read(buffer);
-        if (size != 0) {
-            log.info.printf("tsi.TsiSocket.read len={}\n", .{size});
-        }
-        return size;
+        return self.dsock.read(buffer);
     }
 
     pub fn write(self: *Self, buffer: []u8) Error!usize {
-        log.info.print("tsi.TsiSocket.write start\n");
-        defer log.info.print("tsi.TsiSocket.write done\n");
-
         return self.dsock.write(buffer);
     }
 
